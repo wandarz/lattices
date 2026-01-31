@@ -133,26 +133,6 @@
             background: var(--bg);
         }
 
-        .zoom-controls {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 12px;
-        }
-
-        .zoom-controls button {
-            width: auto;
-            padding: 8px 16px;
-            font-size: 1.25rem;
-            line-height: 1;
-        }
-
-        .zoom-level {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            min-width: 60px;
-        }
-
         .stats {
             margin-top: 16px;
             padding: 16px;
@@ -184,12 +164,12 @@
     <div class="layout">
         <div class="controls">
             <div class="control-group">
-                <label for="spacing">Line spacing (l)</label>
-                <input type="number" id="spacing" value="50" min="10" max="200" step="5">
+                <label for="ratio">Needle/line ratio (d/l)</label>
+                <input type="number" id="ratio" value="0.6" min="0.1" max="2" step="0.1">
             </div>
             <div class="control-group">
-                <label for="needle-length">Needle length (d)</label>
-                <input type="number" id="needle-length" value="30" min="5" max="150" step="5">
+                <label for="num-lines">Number of vertical lines</label>
+                <input type="number" id="num-lines" value="16" min="2" max="50" step="1">
             </div>
             <div class="control-group">
                 <label for="needle-count">Number of needles (N)</label>
@@ -203,12 +183,6 @@
         <div class="canvas-container">
             <div class="canvas-wrapper">
                 <canvas id="canvas" width="800" height="600"></canvas>
-            </div>
-            <div class="zoom-controls">
-                <button id="zoom-out" title="Zoom out">−</button>
-                <span class="zoom-level" id="zoom-level">100%</span>
-                <button id="zoom-in" title="Zoom in">+</button>
-                <span class="zoom-level" style="margin-left: 8px;">Ctrl+scroll to zoom</span>
             </div>
             <div class="stats" id="stats" style="display: none;">
                 <div class="stats-row">
@@ -226,8 +200,8 @@
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        const spacingInput = document.getElementById('spacing');
-        const needleLengthInput = document.getElementById('needle-length');
+        const ratioInput = document.getElementById('ratio');
+        const numLinesInput = document.getElementById('num-lines');
         const needleCountInput = document.getElementById('needle-count');
         const throwBtn = document.getElementById('throw-btn');
         const statsDiv = document.getElementById('stats');
@@ -236,53 +210,24 @@
 
         const LOGICAL_WIDTH = 800;
         const LOGICAL_HEIGHT = 600;
-        const MIN_ZOOM = 0.25;
-        const MAX_ZOOM = 4;
-        const ZOOM_STEP = 0.25;
 
         let currentNeedles = [];
-        let currentL = 50;
-        let zoom = 1;
+        let currentL = 0;
+        let currentD = 0;
 
-        const VIEW_CENTER_X = LOGICAL_WIDTH / 2;
-        const VIEW_CENTER_Y = LOGICAL_HEIGHT / 2;
-
-        function getViewport() {
-            const halfW = (LOGICAL_WIDTH / 2) / zoom;
-            const halfH = (LOGICAL_HEIGHT / 2) / zoom;
-            return {
-                minX: VIEW_CENTER_X - halfW,
-                maxX: VIEW_CENTER_X + halfW,
-                minY: VIEW_CENTER_Y - halfH,
-                maxY: VIEW_CENTER_Y + halfH
-            };
+        function getL() {
+            const numLines = Math.max(2, parseInt(numLinesInput.value, 10) || 16);
+            return LOGICAL_WIDTH / (numLines - 1);
         }
 
-        function worldToCanvas(x, y) {
-            const v = getViewport();
-            return {
-                x: ((x - v.minX) / (v.maxX - v.minX)) * LOGICAL_WIDTH,
-                y: ((y - v.minY) / (v.maxY - v.minY)) * LOGICAL_HEIGHT
-            };
-        }
-
-        function getWorldTransform() {
-            const v = getViewport();
-            return {
-                scale: zoom,
-                translateX: -v.minX,
-                translateY: -v.minY
-            };
-        }
-
-        function applyZoom() {
-            document.getElementById('zoom-level').textContent = Math.round(zoom * 100) + '%';
-            redraw();
+        function getD() {
+            const ratio = parseFloat(ratioInput.value) || 0.6;
+            return ratio * getL();
         }
 
         function redraw() {
-            const l = parseFloat(spacingInput.value) || 50;
-            const d = parseFloat(needleLengthInput.value) || 30;
+            const l = getL();
+            const d = getD();
             drawGrid(l);
             if (currentNeedles.length > 0) {
                 drawNeedles(currentNeedles, l, d);
@@ -290,32 +235,20 @@
         }
 
         function drawGrid(l) {
-            ctx.save();
             ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
-
-            const t = getWorldTransform();
-            ctx.translate(t.translateX, t.translateY);
-            ctx.scale(t.scale, t.scale);
-
-            const v = getViewport();
-            const padding = l * 2;
-            const drawMinY = v.minY - padding;
-            const drawMaxY = v.maxY + padding;
 
             ctx.strokeStyle = '#2d3a4d';
             ctx.lineWidth = 1;
             ctx.setLineDash([]);
 
-            const kMin = Math.floor(v.minX / l);
-            const kMax = Math.ceil(v.maxX / l);
-            for (let k = kMin; k <= kMax; k++) {
+            const numLines = Math.max(2, parseInt(numLinesInput.value, 10) || 16);
+            for (let k = 0; k < numLines; k++) {
                 const x = k * l;
                 ctx.beginPath();
-                ctx.moveTo(x, drawMinY);
-                ctx.lineTo(x, drawMaxY);
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, LOGICAL_HEIGHT);
                 ctx.stroke();
             }
-            ctx.restore();
         }
 
         function checkCrossing(x, angle, l, d) {
@@ -330,16 +263,7 @@
         }
 
         function drawNeedles(needles, l, d) {
-            const v = getViewport();
-            const inView = (x, y) =>
-                x >= v.minX - d && x <= v.maxX + d && y >= v.minY - d && y <= v.maxY + d;
-
-            ctx.save();
-            const t = getWorldTransform();
-            ctx.translate(t.translateX, t.translateY);
-            ctx.scale(t.scale, t.scale);
             needles.forEach(needle => {
-                if (!inView(needle.x, needle.y)) return;
                 const crosses = checkCrossing(needle.x, needle.angle, l, d);
                 const halfLen = d / 2;
                 const x1 = needle.x - halfLen * Math.cos(needle.angle);
@@ -354,7 +278,6 @@
                 ctx.lineWidth = 2;
                 ctx.stroke();
             });
-            ctx.restore();
         }
 
         function resizeCanvas() {
@@ -369,35 +292,19 @@
             redraw();
         }
 
-        document.getElementById('zoom-in').addEventListener('click', () => {
-            if (zoom < MAX_ZOOM) {
-                zoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP);
-                applyZoom();
-            }
-        });
-
-        document.getElementById('zoom-out').addEventListener('click', () => {
-            if (zoom > MIN_ZOOM) {
-                zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
-                applyZoom();
-            }
-        });
-
-        canvas.parentElement.addEventListener('wheel', (e) => {
-            if (!e.ctrlKey) return;
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-            zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + delta));
-            applyZoom();
-        }, { passive: false });
-
         throwBtn.addEventListener('click', async () => {
-            const l = parseFloat(spacingInput.value) || 50;
-            const d = parseFloat(needleLengthInput.value) || 30;
+            const ratio = parseFloat(ratioInput.value) || 0.6;
+            const numLines = Math.max(2, parseInt(numLinesInput.value, 10) || 16);
             const n = parseInt(needleCountInput.value, 10) || 100;
+            const l = LOGICAL_WIDTH / (numLines - 1);
+            const d = ratio * l;
 
-            if (l <= 0 || d <= 0) {
-                alert('Line spacing and needle length must be positive.');
+            if (ratio <= 0) {
+                alert('Ratio d/l must be positive.');
+                return;
+            }
+            if (numLines < 2) {
+                alert('Number of vertical lines must be at least 2.');
                 return;
             }
             if (n < 1 || n > 10000) {
@@ -429,6 +336,7 @@
                 const result = await response.json();
                 currentNeedles = result.needles;
                 currentL = l;
+                currentD = d;
 
                 drawGrid(l);
                 drawNeedles(result.needles, l, d);
@@ -444,26 +352,22 @@
             }
         });
 
-        spacingInput.addEventListener('change', () => {
-            const l = parseFloat(spacingInput.value) || 50;
-            const d = parseFloat(needleLengthInput.value) || 30;
-            currentL = l;
-            drawGrid(l);
+        ratioInput.addEventListener('change', () => {
+            redraw();
             if (currentNeedles.length > 0) {
-                drawNeedles(currentNeedles, l, d);
+                const l = getL();
+                const d = getD();
                 const crossingCount = currentNeedles.filter(n =>
                     checkCrossing(n.x, n.angle, l, d)
                 ).length;
                 crossingCountEl.textContent = crossingCount;
             }
         });
-
-        needleLengthInput.addEventListener('change', () => {
-            const l = parseFloat(spacingInput.value) || 50;
-            const d = parseFloat(needleLengthInput.value) || 30;
-            drawGrid(l);
+        numLinesInput.addEventListener('change', () => {
+            redraw();
             if (currentNeedles.length > 0) {
-                drawNeedles(currentNeedles, l, d);
+                const l = getL();
+                const d = getD();
                 const crossingCount = currentNeedles.filter(n =>
                     checkCrossing(n.x, n.angle, l, d)
                 ).length;
