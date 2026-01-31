@@ -121,12 +121,36 @@
             overflow: hidden;
         }
 
+        .canvas-wrapper {
+            display: inline-block;
+            background: var(--bg);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
         canvas {
             display: block;
             background: var(--bg);
-            border-radius: 8px;
-            width: 100%;
-            max-width: 900px;
+        }
+
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .zoom-controls button {
+            width: auto;
+            padding: 8px 16px;
+            font-size: 1.25rem;
+            line-height: 1;
+        }
+
+        .zoom-level {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            min-width: 60px;
         }
 
         .stats {
@@ -177,7 +201,15 @@
         </div>
 
         <div class="canvas-container">
-            <canvas id="canvas" width="800" height="600"></canvas>
+            <div class="canvas-wrapper">
+                <canvas id="canvas" width="800" height="600"></canvas>
+            </div>
+            <div class="zoom-controls">
+                <button id="zoom-out" title="Zoom out">−</button>
+                <span class="zoom-level" id="zoom-level">100%</span>
+                <button id="zoom-in" title="Zoom in">+</button>
+                <span class="zoom-level" style="margin-left: 8px;">Ctrl+scroll to zoom</span>
+            </div>
             <div class="stats" id="stats" style="display: none;">
                 <div class="stats-row">
                     <span>Needles on lines (crossing):</span>
@@ -202,39 +234,112 @@
         const crossingCountEl = document.getElementById('crossing-count');
         const totalCountEl = document.getElementById('total-count');
 
+        const LOGICAL_WIDTH = 800;
+        const LOGICAL_HEIGHT = 600;
+        const MIN_ZOOM = 0.25;
+        const MAX_ZOOM = 4;
+        const ZOOM_STEP = 0.25;
+
         let currentNeedles = [];
         let currentL = 50;
+        let zoom = 1;
+
+        const VIEW_CENTER_X = LOGICAL_WIDTH / 2;
+        const VIEW_CENTER_Y = LOGICAL_HEIGHT / 2;
+
+        function getViewport() {
+            const halfW = (LOGICAL_WIDTH / 2) / zoom;
+            const halfH = (LOGICAL_HEIGHT / 2) / zoom;
+            return {
+                minX: VIEW_CENTER_X - halfW,
+                maxX: VIEW_CENTER_X + halfW,
+                minY: VIEW_CENTER_Y - halfH,
+                maxY: VIEW_CENTER_Y + halfH
+            };
+        }
+
+        function worldToCanvas(x, y) {
+            const v = getViewport();
+            return {
+                x: ((x - v.minX) / (v.maxX - v.minX)) * LOGICAL_WIDTH,
+                y: ((y - v.minY) / (v.maxY - v.minY)) * LOGICAL_HEIGHT
+            };
+        }
+
+        function getWorldTransform() {
+            const v = getViewport();
+            return {
+                scale: zoom,
+                translateX: -v.minX,
+                translateY: -v.minY
+            };
+        }
+
+        function applyZoom() {
+            document.getElementById('zoom-level').textContent = Math.round(zoom * 100) + '%';
+            redraw();
+        }
+
+        function redraw() {
+            const l = parseFloat(spacingInput.value) || 50;
+            const d = parseFloat(needleLengthInput.value) || 30;
+            drawGrid(l);
+            if (currentNeedles.length > 0) {
+                drawNeedles(currentNeedles, l, d);
+            }
+        }
 
         function drawGrid(l) {
-            const width = canvas.width;
-            const height = canvas.height;
-            ctx.clearRect(0, 0, width, height);
+            ctx.save();
+            ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+            const t = getWorldTransform();
+            ctx.translate(t.translateX, t.translateY);
+            ctx.scale(t.scale, t.scale);
+
+            const v = getViewport();
+            const padding = l * 2;
+            const drawMinY = v.minY - padding;
+            const drawMaxY = v.maxY + padding;
 
             ctx.strokeStyle = '#2d3a4d';
             ctx.lineWidth = 1;
             ctx.setLineDash([]);
 
-            for (let x = 0; x <= width; x += l) {
+            const kMin = Math.floor(v.minX / l);
+            const kMax = Math.ceil(v.maxX / l);
+            for (let k = kMin; k <= kMax; k++) {
+                const x = k * l;
                 ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, height);
+                ctx.moveTo(x, drawMinY);
+                ctx.lineTo(x, drawMaxY);
                 ctx.stroke();
             }
+            ctx.restore();
         }
 
         function checkCrossing(x, angle, l, d) {
             const halfSpan = (d / 2) * Math.abs(Math.cos(angle));
             if (halfSpan <= 0 || l <= 0) return false;
-            let k = 0;
-            while (k * l <= canvas.width + halfSpan) {
+            const kMin = Math.floor((x - halfSpan) / l);
+            const kMax = Math.ceil((x + halfSpan) / l);
+            for (let k = kMin; k <= kMax; k++) {
                 if (Math.abs(x - k * l) <= halfSpan) return true;
-                k++;
             }
             return false;
         }
 
         function drawNeedles(needles, l, d) {
+            const v = getViewport();
+            const inView = (x, y) =>
+                x >= v.minX - d && x <= v.maxX + d && y >= v.minY - d && y <= v.maxY + d;
+
+            ctx.save();
+            const t = getWorldTransform();
+            ctx.translate(t.translateX, t.translateY);
+            ctx.scale(t.scale, t.scale);
             needles.forEach(needle => {
+                if (!inView(needle.x, needle.y)) return;
                 const crosses = checkCrossing(needle.x, needle.angle, l, d);
                 const halfLen = d / 2;
                 const x1 = needle.x - halfLen * Math.cos(needle.angle);
@@ -249,23 +354,42 @@
                 ctx.lineWidth = 2;
                 ctx.stroke();
             });
+            ctx.restore();
         }
 
         function resizeCanvas() {
-            const container = canvas.parentElement;
+            const container = canvas.parentElement.parentElement;
             const rect = container.getBoundingClientRect();
             const maxWidth = Math.min(900, rect.width - 32);
-            const scale = maxWidth / 800;
-            canvas.width = 800;
-            canvas.height = 600;
+            const scale = maxWidth / LOGICAL_WIDTH;
+            canvas.width = LOGICAL_WIDTH;
+            canvas.height = LOGICAL_HEIGHT;
             canvas.style.width = maxWidth + 'px';
-            canvas.style.height = (600 * scale) + 'px';
-            currentL = parseFloat(spacingInput.value) || 50;
-            drawGrid(currentL);
-            if (currentNeedles.length > 0) {
-                drawNeedles(currentNeedles, currentL, parseFloat(needleLengthInput.value) || 30);
-            }
+            canvas.style.height = (LOGICAL_HEIGHT * scale) + 'px';
+            redraw();
         }
+
+        document.getElementById('zoom-in').addEventListener('click', () => {
+            if (zoom < MAX_ZOOM) {
+                zoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP);
+                applyZoom();
+            }
+        });
+
+        document.getElementById('zoom-out').addEventListener('click', () => {
+            if (zoom > MIN_ZOOM) {
+                zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
+                applyZoom();
+            }
+        });
+
+        canvas.parentElement.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey) return;
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+            zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + delta));
+            applyZoom();
+        }, { passive: false });
 
         throwBtn.addEventListener('click', async () => {
             const l = parseFloat(spacingInput.value) || 50;
@@ -292,8 +416,8 @@
                         l,
                         d,
                         n,
-                        canvas_width: canvas.width,
-                        canvas_height: canvas.height
+                        canvas_width: LOGICAL_WIDTH,
+                        canvas_height: LOGICAL_HEIGHT
                     })
                 });
 

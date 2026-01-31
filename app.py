@@ -43,14 +43,14 @@ def throw_needles(l: float, d: float, n: int, canvas_width: float, canvas_height
         
         crosses = False
         if half_horizontal_span > 0 and l > 0:
-            # Check all lines in range
-            k = 0
-            while k * l <= canvas_width + half_horizontal_span:
+            # Check all lines the needle could cross (infinite lattice)
+            k_min = int(math.floor((x - half_horizontal_span) / l))
+            k_max = int(math.ceil((x + half_horizontal_span) / l))
+            for k in range(k_min, k_max + 1):
                 line_x = k * l
                 if abs(x - line_x) <= half_horizontal_span:
                     crosses = True
                     break
-                k += 1
         
         if crosses:
             crossing_count += 1
@@ -83,7 +83,7 @@ def throw():
     canvas_width = float(data.get("canvas_width", 800))
     canvas_height = float(data.get("canvas_height", 600))
     
-    if n <= 0 or n > 10000:
+    if n <= 0 or n > 100000:
         return jsonify({"error": "N must be between 1 and 10000"}), 400
     
     if l <= 0 or d <= 0:
