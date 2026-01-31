@@ -83,8 +83,8 @@ def throw():
     canvas_width = float(data.get("canvas_width", 800))
     canvas_height = float(data.get("canvas_height", 600))
     
-    if n <= 0 or n > 100000:
-        return jsonify({"error": "N must be between 1 and 10000"}), 400
+    if n <= 0 or n > 1000000:
+        return jsonify({"error": "N must be between 1 and 1000000"}), 400
     
     if l <= 0 or d <= 0:
         return jsonify({"error": "l and d must be positive"}), 400

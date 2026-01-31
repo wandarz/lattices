@@ -127,6 +127,15 @@
             gap: 20px;
         }
 
+        .stats-container {
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
         .canvas-wrapper {
             flex-shrink: 0;
             background: var(--bg);
@@ -179,10 +188,10 @@
             </div>
             <div class="control-group">
                 <label for="needle-count">Number of needles (N)</label>
-                <input type="number" id="needle-count" value="100" min="1" max="10000" step="10">
+                <input type="number" id="needle-count" value="100" min="1" max="1000000" step="10">
             </div>
             <div class="control-group">
-                <button id="throw-btn">Throw needles</button>
+                <button id="throw-btn" type="button">Throw needles</button>
             </div>
         </div>
 
@@ -191,24 +200,7 @@
                 <div class="canvas-wrapper">
                     <canvas id="canvas" width="800" height="600"></canvas>
                 </div>
-                <div class="stats" id="stats" style="display: none;">
-                <div class="stats-row">
-                    <span>Needles on lines (crossing):</span>
-                    <span class="stats-value crossing" id="crossing-count">0</span>
-                </div>
-                <div class="stats-row">
-                    <span>Total needles:</span>
-                    <span class="stats-value" id="total-count">0</span>
-                </div>
-                <div class="stats-row">
-                    <span>Probability p:</span>
-                    <span class="stats-value" id="probability">—</span>
-                </div>
-                <div class="stats-row" id="pi-row" style="display: none;">
-                    <span>π approximation:</span>
-                    <span class="stats-value" id="pi-estimate">—</span>
-                </div>
-            </div>
+                <div class="stats-container" id="stats-container"></div>
             </div>
         </div>
     </div>
@@ -220,19 +212,75 @@
         const numLinesInput = document.getElementById('num-lines');
         const needleCountInput = document.getElementById('needle-count');
         const throwBtn = document.getElementById('throw-btn');
-        const statsDiv = document.getElementById('stats');
-        const crossingCountEl = document.getElementById('crossing-count');
-        const totalCountEl = document.getElementById('total-count');
-        const probabilityEl = document.getElementById('probability');
-        const piEstimateEl = document.getElementById('pi-estimate');
-        const piRow = document.getElementById('pi-row');
+        const statsContainer = document.getElementById('stats-container');
 
+        const PI = Math.PI;
         const LOGICAL_WIDTH = 800;
         const LOGICAL_HEIGHT = 600;
 
         let currentNeedles = [];
         let currentL = 0;
         let currentD = 0;
+        let currentStatsBlock = null;
+        let isThrowing = false;
+
+        function createStatsBlock() {
+            const block = document.createElement('div');
+            block.className = 'stats';
+            block.innerHTML = `
+                <div class="stats-row">
+                    <span>Needles on lines (crossing):</span>
+                    <span class="stats-value crossing" data-crossing>0</span>
+                </div>
+                <div class="stats-row">
+                    <span>Total needles:</span>
+                    <span class="stats-value" data-total>0</span>
+                </div>
+                <div class="stats-row">
+                    <span>Ratio d/l:</span>
+                    <span class="stats-value" data-ratio>—</span>
+                </div>
+                <div class="stats-row">
+                    <span>Probability p:</span>
+                    <span class="stats-value" data-probability>—</span>
+                </div>
+                <div class="stats-row" data-pi-row style="display: none;">
+                    <span>π approximation:</span>
+                    <span class="stats-value" data-pi-estimate>—</span>
+                </div>
+                <div class="stats-row" data-pi-error-row style="display: none;">
+                    <span>Relative error vs π:</span>
+                    <span class="stats-value" data-pi-error>—</span>
+                </div>
+            `;
+            return block;
+        }
+
+        function updateStats(block, crossingCount, totalCount, l, d, ratio) {
+            block.querySelector('[data-crossing]').textContent = crossingCount;
+            block.querySelector('[data-total]').textContent = totalCount;
+            block.querySelector('[data-ratio]').textContent = l > 0 ? (d / l).toFixed(4) : '—';
+
+            const p = totalCount > 0 ? crossingCount / totalCount : 0;
+            block.querySelector('[data-probability]').textContent = totalCount > 0 ? p.toFixed(4) : '—';
+
+            const piRow = block.querySelector('[data-pi-row]');
+            const piErrorRow = block.querySelector('[data-pi-error-row]');
+            const piEstimateEl = block.querySelector('[data-pi-estimate]');
+            const piErrorEl = block.querySelector('[data-pi-error]');
+
+            if (ratio < 1 && totalCount > 0 && p > 0) {
+                const piEst = (2 * d) / (p * l);
+                const relError = Math.abs(piEst - PI) / PI;
+                piRow.style.display = '';
+                piErrorRow.style.display = '';
+                piEstimateEl.textContent = piEst.toFixed(6);
+                piErrorEl.textContent = (relError * 100).toFixed(4) + '%';
+            } else {
+                piRow.style.display = 'none';
+                piErrorRow.style.display = 'none';
+            }
+        }
 
         function getL() {
             const numLines = Math.max(2, parseInt(numLinesInput.value, 10) || 16);
@@ -301,22 +349,6 @@
             needles.forEach(needle => drawNeedle(needle, l, d));
         }
 
-        function updateStats(crossingCount, totalCount, l, d, ratio) {
-            crossingCountEl.textContent = crossingCount;
-            totalCountEl.textContent = totalCount;
-
-            const p = totalCount > 0 ? crossingCount / totalCount : 0;
-            probabilityEl.textContent = totalCount > 0 ? p.toFixed(4) : '—';
-
-            if (ratio < 1 && totalCount > 0 && p > 0) {
-                const piEst = (2 * d) / (p * l);
-                piRow.style.display = '';
-                piEstimateEl.textContent = piEst.toFixed(6);
-            } else {
-                piRow.style.display = 'none';
-            }
-        }
-
         function resizeCanvas() {
             const container = canvas.parentElement.parentElement;
             const rect = container.getBoundingClientRect();
@@ -329,7 +361,11 @@
             redraw();
         }
 
-        throwBtn.addEventListener('click', async () => {
+        throwBtn.addEventListener('click', async (e) => {
+            if (isThrowing) return;
+            isThrowing = true;
+            e.preventDefault();
+
             const ratio = parseFloat(ratioInput.value) || 0.6;
             const numLines = Math.max(2, parseInt(numLinesInput.value, 10) || 16);
             const n = parseInt(needleCountInput.value, 10) || 100;
@@ -344,8 +380,8 @@
                 alert('Number of vertical lines must be at least 2.');
                 return;
             }
-            if (n < 1 || n > 10000) {
-                alert('Number of needles must be between 1 and 10000.');
+            if (n < 1 || n > 1000000) {
+                alert('Number of needles must be between 1 and 1000000.');
                 return;
             }
 
@@ -376,45 +412,33 @@
                 currentD = d;
 
                 drawGrid(l);
-                statsDiv.style.display = 'block';
 
+                const statsBlock = createStatsBlock();
+                statsContainer.insertBefore(statsBlock, statsContainer.firstChild);
+                currentStatsBlock = statsBlock;
+
+                const delayMs = Math.min(1, 5000 / result.needles.length);
                 for (let i = 0, crossings = 0; i < result.needles.length; i++) {
                     drawNeedle(result.needles[i], l, d);
                     crossings += result.needles[i].crosses ? 1 : 0;
-                    updateStats(crossings, i + 1, l, d, ratio);
-                    if (i < result.needles.length - 1) {
-                        await new Promise(r => setTimeout(r, 1));
+                    updateStats(statsBlock, crossings, i + 1, l, d, ratio);
+                    if (i < result.needles.length - 1 && delayMs > 0) {
+                        await new Promise(r => setTimeout(r, delayMs));
                     }
                 }
 
-                updateStats(result.crossing_count, result.total_count, l, d, ratio);
+                updateStats(statsBlock, result.crossing_count, result.total_count, l, d, ratio);
             } catch (err) {
                 alert('Error: ' + err.message);
             } finally {
                 throwBtn.disabled = false;
                 throwBtn.textContent = 'Throw needles';
+                isThrowing = false;
             }
         });
 
-        function refreshStats() {
-            if (currentNeedles.length === 0) return;
-            const l = getL();
-            const d = getD();
-            const ratio = parseFloat(ratioInput.value) || 0.6;
-            const crossingCount = currentNeedles.filter(n =>
-                checkCrossing(n.x, n.angle, l, d)
-            ).length;
-            updateStats(crossingCount, currentNeedles.length, l, d, ratio);
-        }
-
-        ratioInput.addEventListener('change', () => {
-            redraw();
-            refreshStats();
-        });
-        numLinesInput.addEventListener('change', () => {
-            redraw();
-            refreshStats();
-        });
+        ratioInput.addEventListener('change', redraw);
+        numLinesInput.addEventListener('change', redraw);
 
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
