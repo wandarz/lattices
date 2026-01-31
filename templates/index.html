@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buffon's Needle Experiment</title>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --border: #2d3a4d;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --crossing: #22c55e;
+            --non-crossing: #64748b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 24px;
+            min-height: 100vh;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-bottom: 24px;
+        }
+
+        .layout {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .controls {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            width: 280px;
+            height: fit-content;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-group:last-of-type {
+            margin-bottom: 0;
+        }
+
+        label {
+            display: block;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.95rem;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        button {
+            width: 100%;
+            padding: 14px 20px;
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .canvas-container {
+            flex: 1;
+            min-width: 400px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            background: var(--bg);
+            border-radius: 8px;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        .stats {
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--bg);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+        }
+
+        .stats-value {
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .stats-value.crossing {
+            color: var(--crossing);
+        }
+    </style>
+</head>
+<body>
+    <h1>Buffon's Needle Experiment</h1>
+    <p class="subtitle">Throw needles on a grid of vertical lines and observe the crossings</p>
+
+    <div class="layout">
+        <div class="controls">
+            <div class="control-group">
+                <label for="spacing">Line spacing (l)</label>
+                <input type="number" id="spacing" value="50" min="10" max="200" step="5">
+            </div>
+            <div class="control-group">
+                <label for="needle-length">Needle length (d)</label>
+                <input type="number" id="needle-length" value="30" min="5" max="150" step="5">
+            </div>
+            <div class="control-group">
+                <label for="needle-count">Number of needles (N)</label>
+                <input type="number" id="needle-count" value="100" min="1" max="10000" step="10">
+            </div>
+            <div class="control-group">
+                <button id="throw-btn">Throw needles</button>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="canvas" width="800" height="600"></canvas>
+            <div class="stats" id="stats" style="display: none;">
+                <div class="stats-row">
+                    <span>Needles on lines (crossing):</span>
+                    <span class="stats-value crossing" id="crossing-count">0</span>
+                </div>
+                <div class="stats-row">
+                    <span>Total needles:</span>
+                    <span class="stats-value" id="total-count">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const spacingInput = document.getElementById('spacing');
+        const needleLengthInput = document.getElementById('needle-length');
+        const needleCountInput = document.getElementById('needle-count');
+        const throwBtn = document.getElementById('throw-btn');
+        const statsDiv = document.getElementById('stats');
+        const crossingCountEl = document.getElementById('crossing-count');
+        const totalCountEl = document.getElementById('total-count');
+
+        let currentNeedles = [];
+        let currentL = 50;
+
+        function drawGrid(l) {
+            const width = canvas.width;
+            const height = canvas.height;
+            ctx.clearRect(0, 0, width, height);
+
+            ctx.strokeStyle = '#2d3a4d';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
+
+            for (let x = 0; x <= width; x += l) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+        }
+
+        function checkCrossing(x, angle, l, d) {
+            const halfSpan = (d / 2) * Math.abs(Math.cos(angle));
+            if (halfSpan <= 0 || l <= 0) return false;
+            let k = 0;
+            while (k * l <= canvas.width + halfSpan) {
+                if (Math.abs(x - k * l) <= halfSpan) return true;
+                k++;
+            }
+            return false;
+        }
+
+        function drawNeedles(needles, l, d) {
+            needles.forEach(needle => {
+                const crosses = checkCrossing(needle.x, needle.angle, l, d);
+                const halfLen = d / 2;
+                const x1 = needle.x - halfLen * Math.cos(needle.angle);
+                const y1 = needle.y - halfLen * Math.sin(needle.angle);
+                const x2 = needle.x + halfLen * Math.cos(needle.angle);
+                const y2 = needle.y + halfLen * Math.sin(needle.angle);
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.strokeStyle = crosses ? '#22c55e' : '#64748b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+        }
+
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const rect = container.getBoundingClientRect();
+            const maxWidth = Math.min(900, rect.width - 32);
+            const scale = maxWidth / 800;
+            canvas.width = 800;
+            canvas.height = 600;
+            canvas.style.width = maxWidth + 'px';
+            canvas.style.height = (600 * scale) + 'px';
+            currentL = parseFloat(spacingInput.value) || 50;
+            drawGrid(currentL);
+            if (currentNeedles.length > 0) {
+                drawNeedles(currentNeedles, currentL, parseFloat(needleLengthInput.value) || 30);
+            }
+        }
+
+        throwBtn.addEventListener('click', async () => {
+            const l = parseFloat(spacingInput.value) || 50;
+            const d = parseFloat(needleLengthInput.value) || 30;
+            const n = parseInt(needleCountInput.value, 10) || 100;
+
+            if (l <= 0 || d <= 0) {
+                alert('Line spacing and needle length must be positive.');
+                return;
+            }
+            if (n < 1 || n > 10000) {
+                alert('Number of needles must be between 1 and 10000.');
+                return;
+            }
+
+            throwBtn.disabled = true;
+            throwBtn.textContent = 'Throwing...';
+
+            try {
+                const response = await fetch('/api/throw', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        l,
+                        d,
+                        n,
+                        canvas_width: canvas.width,
+                        canvas_height: canvas.height
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'Request failed');
+                }
+
+                const result = await response.json();
+                currentNeedles = result.needles;
+                currentL = l;
+
+                drawGrid(l);
+                drawNeedles(result.needles, l, d);
+
+                crossingCountEl.textContent = result.crossing_count;
+                totalCountEl.textContent = result.total_count;
+                statsDiv.style.display = 'block';
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                throwBtn.disabled = false;
+                throwBtn.textContent = 'Throw needles';
+            }
+        });
+
+        spacingInput.addEventListener('change', () => {
+            const l = parseFloat(spacingInput.value) || 50;
+            const d = parseFloat(needleLengthInput.value) || 30;
+            currentL = l;
+            drawGrid(l);
+            if (currentNeedles.length > 0) {
+                drawNeedles(currentNeedles, l, d);
+                const crossingCount = currentNeedles.filter(n =>
+                    checkCrossing(n.x, n.angle, l, d)
+                ).length;
+                crossingCountEl.textContent = crossingCount;
+            }
+        });
+
+        needleLengthInput.addEventListener('change', () => {
+            const l = parseFloat(spacingInput.value) || 50;
+            const d = parseFloat(needleLengthInput.value) || 30;
+            drawGrid(l);
+            if (currentNeedles.length > 0) {
+                drawNeedles(currentNeedles, l, d);
+                const crossingCount = currentNeedles.filter(n =>
+                    checkCrossing(n.x, n.angle, l, d)
+                ).length;
+                crossingCountEl.textContent = crossingCount;
+            }
+        });
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+    </script>
+</body>
+</html>
